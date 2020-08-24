@@ -2,7 +2,7 @@
 
 NOTIFYPATHS="/etc /bin /sbin /usr/bin /usr/sbin /usr/local/bin /usr/local/sbin /root /var/www/html"
 HOST_NAME=$(/bin/hostname)
-MAILTO=ng@jpng.jp
+MAILTO=foobar@example.com
 
 function monitor_path() {
     local notifypath=$1
