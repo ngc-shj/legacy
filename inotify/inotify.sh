@@ -1,6 +1,7 @@
 #!/bin/bash
 
-NOTIFYPATHS="/etc /bin /sbin /usr/bin /usr/sbin /usr/local/bin /usr/local/sbin /root /var/www/html"
+NOTIFYPATHS=(/etc /bin /sbin /usr/bin /usr/sbin /usr/local/bin /usr/local/sbin /root /var/www/html)
+EXCLUDEPATHS=(/etc/pki/nssdb/ /etc/mail/spamassassin/sa-update-keys/)
 HOST_NAME=$(/bin/hostname)
 MAILTO=foobar@example.com
 
@@ -14,7 +15,9 @@ function monitor_path() {
             while true; do
                 messages=""
                 while read -t $timeout line; do
-                    messages="${messages}$line@LF@"
+                    if [[ $(printf '%s\n' "${EXCLUDEPATHS[@]}" | grep -qx "${line%% *}"; echo -n ${?}) -ne 0 ]]; then
+                        messages="${messages}$line@LF@"
+                    fi
                 done
 
                 if [[ -n "$messages" ]]; then
@@ -27,7 +30,7 @@ function monitor_path() {
 }
 
 function main() {
-    for notifypath in $(echo $NOTIFYPATHS); do
+    for notifypath in ${NOTIFYPATHS[@]}; do
         monitor_path $notifypath
     done
 }
