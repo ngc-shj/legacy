@@ -1,0 +1,1156 @@
+--- iiimgcf/IIIMGdkEventKey.c.orig	2006-03-17 18:24:14.000000000 +0900
++++ iiimgcf/IIIMGdkEventKey.c	2008-04-06 22:57:43.000000000 +0900
+@@ -49,6 +49,11 @@
+ #include <X11/Sunkeysym.h>
+ #endif /* sun */
+ 
++#if	USE_NICOLA_TABLE
++#include <string.h>
++#include <errno.h>
++#endif /* USE_NICOLA_TABLE */
++
+ #if	USE_KANA_TABLE
+ static Atom kanawin_atom = 0;
+ static Atom kanaflag_atom = 0;
+@@ -142,6 +147,292 @@
+ };
+ #endif /* USE_KANA_TABLE */
+ 
++#if	USE_NICOLA_TABLE
++typedef struct KEYMAP_ENTRY3 {
++  IIIMP_int32 iiimf_keycode;
++  guint gdk_keysym;
++  IIIMP_int32 iiimf_keychar;
++} KeymapEntry3;
++
++/* semivoicedsound & voicedsound characters. */
++#define NICOLA_voicesound	0xff9e0000
++#define NICOLA_semivoicesound	0xff9f0000
++#define NICOLA_kana_GA	(NICOLA_voicesound | 0xff76)
++#define NICOLA_kana_GI	(NICOLA_voicesound | 0xff77)
++#define NICOLA_kana_GU	(NICOLA_voicesound | 0xff78)
++#define NICOLA_kana_GE	(NICOLA_voicesound | 0xff79)
++#define NICOLA_kana_GO	(NICOLA_voicesound | 0xff7a)
++#define NICOLA_kana_ZA	(NICOLA_voicesound | 0xff7b)
++#define NICOLA_kana_ZI	(NICOLA_voicesound | 0xff7c)
++#define NICOLA_kana_ZU	(NICOLA_voicesound | 0xff7d)
++#define NICOLA_kana_ZE	(NICOLA_voicesound | 0xff7e)
++#define NICOLA_kana_ZO	(NICOLA_voicesound | 0xff7f)
++#define NICOLA_kana_DA	(NICOLA_voicesound | 0xff80)
++#define NICOLA_kana_DI	(NICOLA_voicesound | 0xff81)
++#define NICOLA_kana_DU	(NICOLA_voicesound | 0xff82)
++#define NICOLA_kana_DE	(NICOLA_voicesound | 0xff83)
++#define NICOLA_kana_DO	(NICOLA_voicesound | 0xff84)
++#define NICOLA_kana_BA	(NICOLA_voicesound | 0xff8a)
++#define NICOLA_kana_BI	(NICOLA_voicesound | 0xff8b)
++#define NICOLA_kana_BU	(NICOLA_voicesound | 0xff8c)
++#define NICOLA_kana_BE	(NICOLA_voicesound | 0xff8d)
++#define NICOLA_kana_BO	(NICOLA_voicesound | 0xff8e)
++#define NICOLA_kana_PA	(NICOLA_semivoicesound | 0xff8a)
++#define NICOLA_kana_PI	(NICOLA_semivoicesound | 0xff8b)
++#define NICOLA_kana_PU	(NICOLA_semivoicesound | 0xff8c)
++#define NICOLA_kana_PE	(NICOLA_semivoicesound | 0xff8d)
++#define NICOLA_kana_PO	(NICOLA_semivoicesound | 0xff8e)
++#define NICOLA_kana_VU	(NICOLA_voicesound | 0xff73)
++
++static KeymapEntry3 nicola_normal_keymapTable[] = {
++    { IIIMF_KEYCODE_1, GDK_1, 0x0031 },
++    { IIIMF_KEYCODE_2, GDK_2, 0x0032 },
++    { IIIMF_KEYCODE_3, GDK_3, 0x0033 },
++    { IIIMF_KEYCODE_4, GDK_4, 0x0034 },
++    { IIIMF_KEYCODE_5, GDK_5, 0x0035 },
++    { IIIMF_KEYCODE_6, GDK_6, 0x0036 },
++    { IIIMF_KEYCODE_7, GDK_7, 0x0037 },
++    { IIIMF_KEYCODE_8, GDK_8, 0x0038 },
++    { IIIMF_KEYCODE_9, GDK_9, 0x0039 },
++    { IIIMF_KEYCODE_0, GDK_0, 0x0030 },
++    { '-', GDK_minus, 0x002d },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_Q, GDK_kana_fullstop,0xff61 },
++    { IIIMF_KEYCODE_W, GDK_kana_KA, 0xff76 },
++    { IIIMF_KEYCODE_E, GDK_kana_TA, 0xff80 },
++    { IIIMF_KEYCODE_R, GDK_kana_KO, 0xff7a },
++    { IIIMF_KEYCODE_T, GDK_kana_SA, 0xff7b },
++    { IIIMF_KEYCODE_Y, GDK_kana_RA, 0xff97 },
++    { IIIMF_KEYCODE_U, GDK_kana_CHI, 0xff81 },
++    { IIIMF_KEYCODE_I, GDK_kana_KU, 0xff78 },
++    { IIIMF_KEYCODE_O, GDK_kana_TSU, 0xff82 },
++    { IIIMF_KEYCODE_P, GDK_comma, 0x002c },
++    { IIIMF_KEYCODE_AT, GDK_kana_comma, 0xff64 },
++    { IIIMF_KEYCODE_OPEN_BRACKET, GDK_voicedsound, 0xff9e },
++    { IIIMF_KEYCODE_A, GDK_kana_U, 0xff73 },
++    { IIIMF_KEYCODE_S, GDK_kana_SHI, 0xff7c },
++    { IIIMF_KEYCODE_D, GDK_kana_TE, 0xff83 },
++    { IIIMF_KEYCODE_F, GDK_kana_KE, 0xff79 },
++    { IIIMF_KEYCODE_G, GDK_kana_SE, 0xff7e },
++    { IIIMF_KEYCODE_H, GDK_kana_HA, 0xff8a },
++    { IIIMF_KEYCODE_J, GDK_kana_TO, 0xff84 },
++    { IIIMF_KEYCODE_K, GDK_kana_KI, 0xff77 },
++    { IIIMF_KEYCODE_L, GDK_kana_I, 0xff72 },
++    { IIIMF_KEYCODE_SEMICOLON, GDK_kana_N, 0xff9d },
++#if	USE_NICOLA_TABLE_F
++    { IIIMF_KEYCODE_BACK_SPACE, GDK_BackSpace, 0 },
++    { IIIMF_KEYCODE_ESCAPE, GDK_Escape, 0 },
++#else
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++#endif /* USE_NICOLA_TABLE_F */
++    { IIIMF_KEYCODE_Z, GDK_period, 0x002e },
++    { IIIMF_KEYCODE_X, GDK_kana_HI, 0xff8b },
++    { IIIMF_KEYCODE_C, GDK_kana_SU, 0xff7d },
++    { IIIMF_KEYCODE_V, GDK_kana_FU, 0xff8c },
++    { IIIMF_KEYCODE_B, GDK_kana_HE, 0xff8d },
++    { IIIMF_KEYCODE_N, GDK_kana_ME, 0xff92 },
++    { IIIMF_KEYCODE_M, GDK_kana_SO, 0xff7f },
++    { IIIMF_KEYCODE_COMMA, GDK_kana_NE, 0xff88 },
++    { IIIMF_KEYCODE_PERIOD, GDK_kana_HO, 0xff8e },
++    { IIIMF_KEYCODE_SLASH, GDK_kana_conjunctive, 0xff65 },
++    /* hack to japanese keyboard */
++    /* backslash is duplicate for RO and prolongedsound */
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_BACK_SLASH, GDK_backslash, 0x005c },
++    { 0, 0, 0 }
++};
++static KeymapEntry3 nicola_left_keymapTable[] = {
++    { IIIMF_KEYCODE_SLASH, GDK_question, 0x003f },
++    { IIIMF_KEYCODE_SLASH, GDK_slash, 0x002f },
++    { '~', GDK_asciicircum, 0x007e },
++    { IIIMF_KEYCODE_4, GDK_kana_openingbracket, 0xff62 },
++    { IIIMF_KEYCODE_5, GDK_kana_closingbracket, 0xff63 },
++    { IIIMF_KEYCODE_OPEN_BRACKET, GDK_bracketleft, 0x005b },
++    { IIIMF_KEYCODE_CLOSE_BRACKET, GDK_bracketright, 0x005d },
++    { IIIMF_KEYCODE_LEFT_PARENTHESIS, GDK_parenleft, 0x0028 },
++    { IIIMF_KEYCODE_RIGHT_PARENTHESIS, GDK_parenright, 0x029 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_Q, GDK_kana_a, 0xff67 },
++    { IIIMF_KEYCODE_W, GDK_kana_E, 0xff74 },
++    { IIIMF_KEYCODE_E, GDK_kana_RI, 0xff98 },
++    { IIIMF_KEYCODE_R, GDK_kana_ya, 0xff6c },
++    { IIIMF_KEYCODE_T, GDK_kana_RE, 0xff9a },
++    { IIIMF_KEYCODE_Y, NICOLA_kana_PA, NICOLA_kana_PA },
++    { IIIMF_KEYCODE_U, NICOLA_kana_DI, NICOLA_kana_DI },
++    { IIIMF_KEYCODE_I, NICOLA_kana_GU, NICOLA_kana_GU },
++    { IIIMF_KEYCODE_O, NICOLA_kana_DU, NICOLA_kana_DU },
++    { IIIMF_KEYCODE_P, NICOLA_kana_PI, NICOLA_kana_PI },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_A, GDK_kana_WO, 0xff66 },
++    { IIIMF_KEYCODE_S, GDK_kana_A, 0xff71 },
++    { IIIMF_KEYCODE_D, GDK_kana_NA, 0xff85 },
++    { IIIMF_KEYCODE_F, GDK_kana_yu, 0xff6d },
++    { IIIMF_KEYCODE_G, GDK_kana_MO, 0xff93 },
++    { IIIMF_KEYCODE_H, NICOLA_kana_BA, NICOLA_kana_BA },
++    { IIIMF_KEYCODE_J, NICOLA_kana_DO, NICOLA_kana_DO },
++    { IIIMF_KEYCODE_K, NICOLA_kana_GI, NICOLA_kana_GI },
++    { IIIMF_KEYCODE_L, NICOLA_kana_PO, NICOLA_kana_PO },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++#if	USE_NICOLA_TABLE_F
++    { IIIMF_KEYCODE_BACK_SPACE, GDK_BackSpace, 0 },
++    { IIIMF_KEYCODE_ESCAPE, GDK_Escape, 0 },
++#else
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++#endif /* USE_NICOLA_TABLE_F */
++    { IIIMF_KEYCODE_Z, GDK_kana_u, 0xff69 },
++    { IIIMF_KEYCODE_X, GDK_prolongedsound, 0xff70 },
++    { IIIMF_KEYCODE_C, GDK_kana_RO, 0xff9b },
++    { IIIMF_KEYCODE_V, GDK_kana_YA, 0xff94 },
++    { IIIMF_KEYCODE_B, GDK_kana_i, 0xff68 },
++    { IIIMF_KEYCODE_N, NICOLA_kana_PU, NICOLA_kana_PU },
++    { IIIMF_KEYCODE_M, NICOLA_kana_ZO, NICOLA_kana_ZO },
++    { IIIMF_KEYCODE_COMMA, NICOLA_kana_PE, NICOLA_kana_PE },
++    { IIIMF_KEYCODE_PERIOD, NICOLA_kana_BO, NICOLA_kana_BO },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    /* hack to japanese keyboard */
++    /* backslash is duplicate for RO and prolongedsound */
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { 0, 0, 0 }
++};
++static KeymapEntry3 nicola_right_keymapTable[] = {
++    { IIIMF_KEYCODE_SLASH, GDK_question, 0x003f },
++    { IIIMF_KEYCODE_SLASH, GDK_slash, 0x002f },
++    { '~', GDK_asciicircum, 0x007e },
++    { IIIMF_KEYCODE_4, GDK_kana_openingbracket, 0xff62 },
++    { IIIMF_KEYCODE_5, GDK_kana_closingbracket, 0xff63 },
++    { IIIMF_KEYCODE_OPEN_BRACKET, GDK_bracketleft, 0x005b },
++    { IIIMF_KEYCODE_CLOSE_BRACKET, GDK_bracketright, 0x005d },
++    { IIIMF_KEYCODE_LEFT_PARENTHESIS, GDK_parenleft, 0x0028 },
++    { IIIMF_KEYCODE_RIGHT_PARENTHESIS, GDK_parenright, 0x029 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_W, NICOLA_kana_GA, NICOLA_kana_GA },
++    { IIIMF_KEYCODE_E, NICOLA_kana_DA, NICOLA_kana_DA },
++    { IIIMF_KEYCODE_R, NICOLA_kana_GO, NICOLA_kana_GO },
++    { IIIMF_KEYCODE_T, NICOLA_kana_ZA, NICOLA_kana_ZA },
++    { IIIMF_KEYCODE_Y, GDK_kana_YO, 0xff96 },
++    { IIIMF_KEYCODE_U, GDK_kana_NI, 0xff86 },
++    { IIIMF_KEYCODE_I, GDK_kana_RU, 0xff99 },
++    { IIIMF_KEYCODE_O, GDK_kana_MA, 0xff8f },
++    { IIIMF_KEYCODE_P, GDK_kana_e, 0xff6a },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_OPEN_BRACKET, GDK_semivoicedsound, 0xff9f },
++    { IIIMF_KEYCODE_A, NICOLA_kana_VU, NICOLA_kana_VU },
++    { IIIMF_KEYCODE_S, NICOLA_kana_ZI, NICOLA_kana_ZI },
++    { IIIMF_KEYCODE_D, NICOLA_kana_DE, NICOLA_kana_DE },
++    { IIIMF_KEYCODE_F, NICOLA_kana_GE, NICOLA_kana_GE },
++    { IIIMF_KEYCODE_G, NICOLA_kana_ZE, NICOLA_kana_ZE },
++    { IIIMF_KEYCODE_H, GDK_kana_MI, 0xff90 },
++    { IIIMF_KEYCODE_J, GDK_kana_O, 0xff75 },
++    { IIIMF_KEYCODE_K, GDK_kana_NO, 0xff89 },
++    { IIIMF_KEYCODE_L, GDK_kana_yo, 0xff6e },
++    { IIIMF_KEYCODE_SEMICOLON, GDK_kana_tsu, 0xff6f },
++#if	USE_NICOLA_TABLE_F
++    { IIIMF_KEYCODE_BACK_SPACE, GDK_BackSpace, 0 },
++    { IIIMF_KEYCODE_ESCAPE, GDK_Escape, 0 },
++#else
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++#endif /* USE_NICOLA_TABLE_F */
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_X, NICOLA_kana_BI, NICOLA_kana_BI },
++    { IIIMF_KEYCODE_C, NICOLA_kana_ZU, NICOLA_kana_ZU },
++    { IIIMF_KEYCODE_V, NICOLA_kana_BU, NICOLA_kana_BU },
++    { IIIMF_KEYCODE_B, NICOLA_kana_BE, NICOLA_kana_BE },
++    { IIIMF_KEYCODE_N, GDK_kana_NU, 0xff87 },
++    { IIIMF_KEYCODE_M, GDK_kana_YU, 0xff95 },
++    { IIIMF_KEYCODE_COMMA, GDK_kana_MU, 0xff91 },
++    { IIIMF_KEYCODE_PERIOD, GDK_kana_WA, 0xff9c },
++    { IIIMF_KEYCODE_SLASH, GDK_kana_o, 0xff6b },
++    /* hack to japanese keyboard */
++    /* backslash is duplicate for RO and prolongedsound */
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { 0, 0, 0 }
++};
++static KeymapEntry3 nicola_shift_keymapTable[] = {
++    { IIIMF_KEYCODE_EXCLAMATION_MARK, GDK_exclam, 0x0021 },
++    { IIIMF_KEYCODE_QUOTEDBL, GDK_quotedbl, 0x0022 },
++    { IIIMF_KEYCODE_NUMBER_SIGN, GDK_numbersign, 0x0023 },
++    { IIIMF_KEYCODE_DOLLAR, GDK_dollar, 0x0024 },
++    { IIIMF_KEYCODE_5, GDK_percent, 0x0025 },
++    { IIIMF_KEYCODE_AMPERSAND, GDK_ampersand, 0x0026 },
++    { IIIMF_KEYCODE_BACK_QUOTE, GDK_quoteright, 0x0027 },
++    { IIIMF_KEYCODE_LEFT_PARENTHESIS, GDK_braceleft, 0x0028 },
++    { IIIMF_KEYCODE_RIGHT_PARENTHESIS, GDK_braceright, 0x0029 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_Q, GDK_kana_fullstop, 0xff61 },
++    { IIIMF_KEYCODE_W, GDK_kana_KA, 0xff76 },
++    { IIIMF_KEYCODE_E, GDK_kana_TA, 0xff80 },
++    { IIIMF_KEYCODE_R, GDK_kana_KO, 0xff7a },
++    { IIIMF_KEYCODE_T, GDK_kana_SA, 0xff7b },
++    { IIIMF_KEYCODE_Y, GDK_kana_RA, 0xff97 },
++    { IIIMF_KEYCODE_U, GDK_kana_CHI, 0xff81 },
++    { IIIMF_KEYCODE_I, GDK_kana_KU, 0xff78 },
++    { IIIMF_KEYCODE_O, GDK_kana_TSU, 0xff82 },
++    { IIIMF_KEYCODE_P, GDK_comma, 0x002c },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_A, GDK_kana_U, 0xff73 },
++    { IIIMF_KEYCODE_S, GDK_kana_SHI, 0xff7c },
++    { IIIMF_KEYCODE_D, GDK_kana_TE, 0xff83 },
++    { IIIMF_KEYCODE_F, GDK_kana_KE, 0xff79 },
++    { IIIMF_KEYCODE_G, GDK_kana_SE, 0xff7e },
++    { IIIMF_KEYCODE_H, GDK_kana_HA, 0xff8a },
++    { IIIMF_KEYCODE_J, GDK_kana_TO, 0xff84 },
++    { IIIMF_KEYCODE_K, GDK_kana_KI, 0xff77 },
++    { IIIMF_KEYCODE_L, GDK_kana_I, 0xff72 },
++    { IIIMF_KEYCODE_SEMICOLON, GDK_kana_N, 0xff9d },
++#if	USE_NICOLA_TABLE_F
++    { IIIMF_KEYCODE_BACK_SPACE, GDK_BackSpace, 0 },
++    { IIIMF_KEYCODE_ESCAPE, GDK_Escape, 0 },
++#else
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++#endif /* USE_NICOLA_TABLE_F */
++    { IIIMF_KEYCODE_Z, GDK_period, 0x002e },
++    { IIIMF_KEYCODE_X, GDK_kana_HI, 0xff8b },
++    { IIIMF_KEYCODE_C, GDK_kana_SU, 0xff7d },
++    { IIIMF_KEYCODE_V, GDK_kana_HU, 0xff8c },
++    { IIIMF_KEYCODE_B, GDK_kana_HE, 0xff8d },
++    { IIIMF_KEYCODE_N, GDK_kana_ME, 0xff92 },
++    { IIIMF_KEYCODE_M, GDK_kana_SO, 0xff7f },
++    { IIIMF_KEYCODE_COMMA, GDK_kana_NE, 0xff88 },
++    { IIIMF_KEYCODE_PERIOD, GDK_kana_HO, 0xff8e },
++    { IIIMF_KEYCODE_SLASH, GDK_kana_conjunctive, 0xff65 },
++    /* hack to japanese keyboard */
++    /* backslash is duplicate for RO and prolongedsound */
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { IIIMF_KEYCODE_UNDEFINED, GDK_VoidSymbol, 0 },
++    { 0, 0, 0 }
++};
++
++typedef enum
++{
++  NICOLA_KEYPRESS_NONE  = 0,
++  NICOLA_KEYPRESS_INIT  = 1,
++  NICOLA_KEYPRESS_CHAR = 2,
++  NICOLA_KEYPRESS_THUMB  = 4,
++  NICOLA_KEYPRESS_CHAR_THUMB  = 8 
++} NICOLA_keypress_status;
++
++typedef struct NICOLA_STORE_CHAR {
++  GdkEventKey e_char;
++  int index;
++} NICOLA_store_char;
++
++#endif /* USE_NICOLA_TABLE */
++
+ #if	USE_KANA_TABLE
+ static void
+ set_keymap_table(GdkDisplay *display)
+@@ -847,9 +1138,546 @@
+   return mod;
+ }
+ 
++#if	USE_NICOLA_TABLE
++
++static gboolean
++nicola_getenv_numeric (const gchar * env,
++		       guint64 * val)
++{
++  gchar *nptr;
++  guint64 env_val;
++
++  if (!val || !env)
++    return FALSE;
++
++  nptr = getenv (env);
++  if (!nptr)
++    return FALSE;
++
++  env_val = g_ascii_strtoull (nptr, NULL, 0);
++  if ((env_val == 0) || (env_val == G_MAXUINT64 && ERANGE == errno))
++    return FALSE;
++
++  *val = env_val;
++
++  return TRUE;
++}
++
++static gboolean
++nicola_getenv_thumb (const GdkEventKey * e,
++		     const gchar * env,
++		     guint * keyval)
++{
++  GdkKeymap *keymap;
++  guint64 hw_keycode;
++  guint kv;
++
++  if (!keyval || !env)
++    return FALSE;
++
++  if (!nicola_getenv_numeric (env, &hw_keycode))
++    return FALSE;
++
++#if GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION >= 2
++  keymap = gdk_keymap_get_for_display (gdk_drawable_get_display (e->window));
++#else
++  keymap = gdk_keymap_get_default ();
++#endif
++
++  if (!gdk_keymap_translate_keyboard_state (keymap, hw_keycode,
++					    0, 0, &kv, NULL, NULL, NULL))
++    return FALSE;
++
++  *keyval = kv;
++
++  return TRUE;
++}
++
++static guint
++nicola_set_leftkey (const GdkEventKey * e)
++{
++  static guint keyval = 0;
++
++  if (keyval == 0 && e)
++    if (!nicola_getenv_thumb (e, "HTT_NICOLA_LEFT_KEYCODE", &keyval))
++      keyval = GDK_Muhenkan;
++
++  return keyval;
++}
++
++static guint
++nicola_get_leftkey (void)
++{
++  return nicola_set_leftkey (NULL);
++}
++
++static guint
++nicola_set_rightkey (const GdkEventKey * e)
++{
++  static guint keyval = 0;
++
++  if (keyval == 0 && e)
++    if (!nicola_getenv_thumb (e, "HTT_NICOLA_RIGHT_KEYCODE", &keyval))
++      keyval = GDK_Henkan;
++
++  return keyval;
++}
++
++static guint
++nicola_get_rightkey (void)
++{
++  return nicola_set_rightkey (NULL);
++}
++
++static guint
++nicola_set_syntyping_judgement_time (const GdkEventKey * e)
++{
++  static guint64 tm = 0;
++
++  if (tm == 0 && e)
++    {
++      if (!nicola_getenv_numeric ("HTT_NICOLA_SYN_TYPING_JUDGE_TIME", &tm))
++        tm = 100;
++      if (tm == 0  || tm > 1000)
++        tm = 100;
++    }
++
++  return tm ;
++}
++
++static guint
++nicola_get_syntyping_judgement_time (void)
++{
++  return nicola_set_syntyping_judgement_time (NULL);
++}
++
++static gint
++get_nicola_flag (const GdkEventKey * e)
++{
++  static int nicolaMode = -1;
++
++  if (nicolaMode == -1)
++    {
++      if (!getenv("HTT_USES_NICOLA"))
++	nicolaMode = 0;
++      else
++	{
++	  nicola_set_leftkey(e);
++	  nicola_set_rightkey(e);
++	  nicola_set_syntyping_judgement_time(e);
++	  nicolaMode = 1;
++	}
++    }
++
++  return nicolaMode;
++}
++
++static gboolean
++nicola_append_keyevent (GArray **kev_array,
++			const IIIMCF_keyevent *kev)
++{	
++  if (kev->keycode == IIIMF_KEYCODE_UNDEFINED)
++    return FALSE;
++
++  g_array_append_val (*kev_array, *kev);
++
++  return TRUE;
++}
++
++static gboolean
++nicola_create_keyevent_default (const GdkEventKey * e,
++				GArray **kev_array)
++{
++  IIIMCF_keyevent kev;
++  guint keyval;
++  int c;
++
++  /* first, try to get keycode from KeySym */
++  c = g2icode (e->keyval);
++  if (c == 0)
++    {
++      GdkKeymap *keymap;
++#if GTK_MAJOR_VERSION == 2 && GTK_MINOR_VERSION >= 2
++      keymap =
++	gdk_keymap_get_for_display (gdk_drawable_get_display (e->window));
++#else
++      keymap = gdk_keymap_get_default ();
++#endif
++      /* 
++       * Cannot get IIIMF keycode from keysym.
++       * So, we genarate base keysym by ignoring mod mask from hardware keycode.
++       */
++      if (!gdk_keymap_translate_keyboard_state (keymap, e->hardware_keycode,
++						0, 0, &keyval, NULL, NULL,
++						NULL))
++          return FALSE;
++
++      /* retry */
++      c = g2icode (keyval);
++
++      if (c == 0)
++          return FALSE;
++    }
++  if (c < 0)
++    {
++      kev.keychar = 0;
++      kev.keycode = -c;
++    }
++  else
++    {
++      kev.keychar = gdk_keyval_to_unicode (e->keyval);
++      kev.keycode = c;
++    }
++
++  kev.modifier = modifier (e->state);
++  kev.time_stamp = e->time;
++
++  return nicola_append_keyevent (kev_array, &kev);
++}
++
++static gboolean
++nicola_create_keyevent_M (const GdkEventKey * e,
++			  int i,
++			  GArray **kev_array)
++{
++  IIIMCF_keyevent kev;
++
++  if (e->state & GDK_SHIFT_MASK)
++    {
++      kev.keycode = nicola_shift_keymapTable[i].iiimf_keycode;
++      kev.keychar = nicola_shift_keymapTable[i].iiimf_keychar;
++    }
++  else
++    {
++      kev.keycode = nicola_normal_keymapTable[i].iiimf_keycode;
++      kev.keychar = nicola_normal_keymapTable[i].iiimf_keychar;
++    }
++  kev.modifier = modifier (e->state);
++  kev.time_stamp = e->time;
++
++  return nicola_append_keyevent (kev_array, &kev);
++}
++
++static gboolean 
++nicola_create_keyevent_O (const GdkEventKey * e,
++			  GArray **kev_array)
++{
++  return nicola_create_keyevent_default (e, kev_array);
++}
++
++static gboolean
++nicola_create_keyevent_MO (const GdkEventKey * e,
++			   int i,
++			   const GdkEventKey * e_thumb,
++			   GArray **kev_array)
++{
++  IIIMCF_keyevent kev;
++  IIIMP_int32 keychar;
++
++  kev.modifier = modifier (e->state);
++  kev.time_stamp = e->time;
++
++  if (e_thumb->keyval == nicola_get_leftkey ())
++    {
++      kev.keycode = nicola_left_keymapTable[i].iiimf_keycode;
++      keychar = nicola_left_keymapTable[i].iiimf_keychar;
++    }
++  else if (e_thumb->keyval == nicola_get_rightkey ())
++    {
++      kev.keycode = nicola_right_keymapTable[i].iiimf_keycode;
++      keychar = nicola_right_keymapTable[i].iiimf_keychar;
++    }
++  else
++    {
++      kev.keycode = 0;
++      keychar = 0;
++    }
++
++  /* voicedsound or semivoicedsound characters. */
++  if ((keychar & 0xffff0000) == NICOLA_voicesound ||
++      (keychar & 0xffff0000) == NICOLA_semivoicesound)
++    {
++      kev.keychar = keychar & 0x0000ffff;
++      nicola_append_keyevent (kev_array, &kev);
++
++      kev.keychar = ((keychar & 0xffff0000) >> 16);
++    }
++  else
++    kev.keychar = keychar;
++
++  return nicola_append_keyevent (kev_array, &kev);
++}
++
++static NICOLA_keypress_status
++nicola_create_keyevent_M1OM2 (const GdkEventKey * e_store,
++			      const int i_char,
++			      const GdkEventKey * e_thumb,
++			      const GdkEventKey * e,
++			      const int i,
++			      GArray **kev_array)
++{
++  NICOLA_keypress_status ks;
++
++  /* M1 + OM2 */
++  if ((e_thumb->time - e_store->time) >= (e->time - e_thumb->time))
++    {
++      nicola_create_keyevent_M (e_store, i_char, kev_array);
++      nicola_create_keyevent_MO (e, i, e_thumb, kev_array);
++      ks = NICOLA_KEYPRESS_INIT;
++    }
++  /* M1O + M2 */
++  else
++    {
++      nicola_create_keyevent_MO (e_store, i_char, e_thumb, kev_array);
++      ks = NICOLA_KEYPRESS_CHAR;
++    }
++
++  return ks;
++}
++
++static NICOLA_keypress_status
++nicola_create_keyevent_MO_M (const GdkEventKey * e_store,
++			     const int i_char,
++			     const GdkEventKey * e_thumb,
++			     const GdkEventKey * e,
++			     const int i,
++			     GArray **kev_array)
++{
++  NICOLA_keypress_status ks;
++
++  /* M */
++  if ((e_thumb->time - e_store->time) >= (e->time - e_thumb->time) &&
++      (e->time - e_thumb->time) <  nicola_get_syntyping_judgement_time ())
++    {
++      nicola_create_keyevent_M (e_store, i_char, kev_array);
++      ks = NICOLA_KEYPRESS_THUMB;
++    }
++  /* MO */
++  else
++    {
++      nicola_create_keyevent_MO (e_store, i_char, e_thumb, kev_array);
++      ks = NICOLA_KEYPRESS_INIT;
++    }
++
++  return ks;
++}
++
++static gboolean
++convert_GdkEventKeys_to_NICOLA_IIIMCF_keyevents (const GdkEventKey * e,
++						 int i,
++						 IIIMCF_keyevent **pkevs,
++						 gint *n_kevs,
++						 int key_release)
++{
++  static GdkEventKey e_thumb, e_char;
++  static int i_char = -1;
++  static NICOLA_keypress_status previous_ks = NICOLA_KEYPRESS_INIT;
++  NICOLA_keypress_status current_ks = NICOLA_KEYPRESS_NONE;
++  GArray *kev_array;
++  gboolean result = TRUE;
++
++  kev_array = g_array_new (FALSE, FALSE, sizeof (IIIMCF_keyevent));
++
++  switch (previous_ks)
++    {
++    case NICOLA_KEYPRESS_NONE:
++      break;
++
++    /* (1) */
++    case NICOLA_KEYPRESS_INIT:
++      if (!key_release)
++        {
++          /* (1.1) */
++          if (i > -1)
++            {
++              current_ks = NICOLA_KEYPRESS_CHAR;
++            }
++          /* (1.2) */
++          else if (e->keyval == nicola_get_leftkey () || e->keyval == nicola_get_rightkey ())
++            {
++              current_ks = NICOLA_KEYPRESS_THUMB;
++            }
++        }
++
++      if (current_ks == NICOLA_KEYPRESS_NONE && !key_release)
++        {
++          nicola_create_keyevent_default (e, &kev_array);
++          current_ks = NICOLA_KEYPRESS_INIT;
++        }
++
++      break;
++
++    /* (2) */
++    case NICOLA_KEYPRESS_CHAR:
++      if (!key_release)
++        {
++          /* (2.2) */
++          if (i > -1)
++            {
++              nicola_create_keyevent_M (&e_char, i_char, &kev_array);
++              current_ks = NICOLA_KEYPRESS_CHAR;
++            }
++          /* (2.3) */
++          else if (e->keyval == nicola_get_leftkey () || e->keyval == nicola_get_rightkey ())
++            {
++              current_ks = NICOLA_KEYPRESS_CHAR_THUMB;
++            }
++        }
++      else
++        {
++          /* (2.4) */
++          if (i_char > -1 && e->keyval == e_char.keyval)
++            {
++               nicola_create_keyevent_M (&e_char, i_char, &kev_array);
++              current_ks = NICOLA_KEYPRESS_INIT;
++            }
++        }
++
++      /* (2.1) */
++      if (current_ks == NICOLA_KEYPRESS_NONE && !key_release)
++        {
++          nicola_create_keyevent_M (&e_char, i_char, &kev_array);
++          nicola_create_keyevent_default (e, &kev_array);
++          current_ks = NICOLA_KEYPRESS_INIT;
++        }
++      break;
++
++    /* (3) */
++    case NICOLA_KEYPRESS_THUMB:
++      if (!key_release)
++        {
++          /* (3.2) */
++          if (i > -1)
++            {
++              nicola_create_keyevent_MO (e, i, &e_thumb, &kev_array);
++              current_ks = NICOLA_KEYPRESS_INIT;
++            }
++          /* (3.3) */
++          else if (e->keyval == nicola_get_leftkey () || e->keyval == nicola_get_rightkey ())
++            {
++              nicola_create_keyevent_O (&e_thumb, &kev_array);
++              current_ks = NICOLA_KEYPRESS_THUMB;
++            }
++        }
++      else
++        {
++          /* (3.4) */
++          if (e->keyval == e_thumb.keyval)
++            {
++              nicola_create_keyevent_default (&e_thumb, &kev_array);
++              current_ks = NICOLA_KEYPRESS_INIT;
++            }
++        }
++
++      /* (3.1) */
++      if (current_ks == NICOLA_KEYPRESS_NONE && !key_release)
++        {
++          nicola_create_keyevent_O (&e_thumb, &kev_array);
++          nicola_create_keyevent_default (e, &kev_array);
++          current_ks = NICOLA_KEYPRESS_INIT;
++        }
++
++      break;
++
++    /* (4) */
++    case NICOLA_KEYPRESS_CHAR_THUMB:
++      if (!key_release)
++        {
++          /* (4.2) */
++          if (i > -1)
++            {
++              current_ks = nicola_create_keyevent_M1OM2 (&e_char, i_char, &e_thumb,
++                                                         e, i, &kev_array);
++            }
++          /* (4.3) */
++          else if (e->keyval == nicola_get_leftkey () || e->keyval == nicola_get_rightkey ())
++            {
++              nicola_create_keyevent_MO (&e_char, i_char, &e_thumb, &kev_array);
++              current_ks = NICOLA_KEYPRESS_THUMB;
++            }
++        }
++      else
++        {
++          /* (4.4) */
++          if (e->keyval == e_thumb.keyval)
++            {
++              nicola_create_keyevent_MO (&e_char, i_char, &e_thumb, &kev_array);
++              current_ks = NICOLA_KEYPRESS_INIT;
++            }
++
++          if (i > -1 && e->keyval == e_char.keyval)
++            {
++              current_ks = nicola_create_keyevent_MO_M (&e_char, i_char, &e_thumb, e, i, &kev_array);
++            }
++        }
++
++      /* (4.1) */
++      if (current_ks == NICOLA_KEYPRESS_NONE && !key_release)
++        {
++          nicola_create_keyevent_MO (&e_char, i_char, &e_thumb, &kev_array);
++          nicola_create_keyevent_default (e, &kev_array);
++          current_ks = NICOLA_KEYPRESS_INIT;
++        }
++      break;
++    }
++
++  switch(current_ks)
++    {
++    case NICOLA_KEYPRESS_NONE:
++      break;
++
++    case NICOLA_KEYPRESS_INIT:
++      memset (&e_thumb, 0, sizeof (GdkEventKey));
++      memset (&e_char, 0, sizeof (GdkEventKey));
++      i_char = -1;
++      break;
++
++    case NICOLA_KEYPRESS_CHAR:
++      g_memmove (&e_char, e, sizeof (GdkEventKey));
++      i_char = i;
++      break;
++
++    case NICOLA_KEYPRESS_THUMB:
++      if (previous_ks != NICOLA_KEYPRESS_CHAR_THUMB)
++        g_memmove (&e_thumb, e, sizeof (GdkEventKey));
++      break;
++      
++    case NICOLA_KEYPRESS_CHAR_THUMB:
++      g_memmove (&e_thumb, e, sizeof (GdkEventKey));
++      break;
++    }
++
++  if (kev_array->len > 0)
++    {
++      *pkevs = (IIIMCF_keyevent *) kev_array->data;
++      *n_kevs = kev_array->len;
++    }
++  else
++    {
++      *pkevs = NULL;
++      *n_kevs = 0;
++      if (current_ks == NICOLA_KEYPRESS_NONE)
++         result = FALSE;
++    }
++
++  g_array_free (kev_array, kev_array->len > 0 ? FALSE : TRUE);
++
++  if (current_ks != NICOLA_KEYPRESS_NONE)
++    previous_ks = current_ks;
++
++  return result;
++}
++#endif /* USE_NICOLA_TABLE */
++
+ IIIMF_status
++#if	USE_NICOLA_TABLE
++convert_GdkEventKey_to_IIIMCF_keyevents (GdkEventKey * e,
++					 IIIMCF_keyevent **pkevs,
++					 gint * n_kevs)
++#else
+ convert_GdkEventKey_to_IIIMCF_keyevent (GdkEventKey * e,
+ 					IIIMCF_keyevent * pkev)
++#endif /* USE_NICOLA_TABLE */
+ {
+   int c;
+   guint keyval;
+@@ -859,16 +1687,31 @@
+ 
+ #if	USE_KANA_TABLE
+   gint kanaflag;
++#if	USE_NICOLA_TABLE
++  IIIMCF_keyevent *pkev;
++  gint nicolaflag;
++#endif /* USE_NICOLA_TABLE */
+   gint i;
+ 
+   kanaflag = get_kana_flag(e);
++#if	USE_NICOLA_TABLE
++  nicolaflag = get_nicola_flag(e);
++  if ((nicolaflag == 0 || kanaflag == 0) && key_release)
++    return IIIMF_STATUS_FAIL;
++
++  pkev = g_new0 (IIIMCF_keyevent, 1);
++#endif /* USE_NICOLA_TABLE */
+   if (kanaflag >= 0)
+     {
+       if (e->keyval == GDK_Hiragana_Katakana)
+         toggle_kana_flag(e);
+     }
+ 
++#if	USE_NICOLA_TABLE
++  if (kanaflag == 1 && nicolaflag == 0)
++#else
+   if (kanaflag == 1)
++#endif /* USE_NICOLA_TABLE */
+     {
+       if (e->state & GDK_SHIFT_MASK)
+         {
+@@ -883,6 +1726,10 @@
+                     {
+                       pkev->modifier = (modifier (e->state) | key_release);
+                       pkev->time_stamp = e->time;
++#if	USE_NICOLA_TABLE
++                      *pkevs = pkev;
++                      *n_kevs = 1;
++#endif /* USE_NICOLA_TABLE */
+                       return IIIMF_STATUS_SUCCESS;
+                     }
+                   break;
+@@ -900,6 +1747,10 @@
+                 {
+                   pkev->modifier = (modifier (e->state) | key_release);
+                   pkev->time_stamp = e->time;
++#if	USE_NICOLA_TABLE
++                  *pkevs = pkev;
++                  *n_kevs = 1;
++#endif /* USE_NICOLA_TABLE */
+                   return IIIMF_STATUS_SUCCESS;
+                 }
+               break;
+@@ -916,13 +1767,43 @@
+                 {
+                   pkev->modifier = (modifier (e->state) | key_release);
+                   pkev->time_stamp = e->time;
++#if	USE_NICOLA_TABLE
++                  *pkevs = pkev;
++                  *n_kevs = 1;
++#endif /* USE_NICOLA_TABLE */
+                   return IIIMF_STATUS_SUCCESS;
+                 }
+               break;
+             }
+         }
+     }
++#if	USE_NICOLA_TABLE
++  else if (kanaflag == 1 && nicolaflag == 1)
++    {
++      for (i = 0; kana_normal_keymapTable[i].iiimf_keycode != 0; i++)
++        {
++          if (kana_normal_keymapTable[i].hardware_keycode == e->hardware_keycode)
++            {
++              if (convert_GdkEventKeys_to_NICOLA_IIIMCF_keyevents (e, i, pkevs, n_kevs, key_release))
++                {
++                  g_free (pkev);
++                  return IIIMF_STATUS_SUCCESS;
++                }
++	      return IIIMF_STATUS_FAIL;
++            }
++        }
++
++      if (convert_GdkEventKeys_to_NICOLA_IIIMCF_keyevents (e, -1, pkevs, n_kevs, key_release))
++        {
++          g_free(pkev);
++          return IIIMF_STATUS_SUCCESS;
++        }
++      return IIIMF_STATUS_FAIL;
++    }
++  else if (nicolaflag == 0)
++#else
+   else
++#endif /* USE_NICOLA_TABLE */
+     {
+       for (i = 0; kana_normal_keymapTable[i].iiimf_keycode != 0; i++)
+         {
+@@ -934,6 +1815,10 @@
+                 {
+                   pkev->modifier = (modifier (e->state) | key_release);
+                   pkev->time_stamp = e->time;
++#if	USE_NICOLA_TABLE
++                  *pkevs = pkev;
++                  *n_kevs = 1;
++#endif /* USE_NICOLA_TABLE */
+                   return IIIMF_STATUS_SUCCESS;
+                 }
+               break;
+@@ -950,6 +1835,10 @@
+                 {
+                   pkev->modifier = (modifier (e->state) | key_release);
+                   pkev->time_stamp = e->time;
++#if	USE_NICOLA_TABLE
++                  *pkevs = pkev;
++                  *n_kevs = 1;
++#endif /* USE_NICOLA_TABLE */
+                   return IIIMF_STATUS_SUCCESS;
+                 }
+               break;
+@@ -976,14 +1865,32 @@
+       if (!gdk_keymap_translate_keyboard_state (keymap, e->hardware_keycode,
+ 						0, 0, &keyval, NULL, NULL,
+ 						NULL))
++#if	USE_NICOLA_TABLE
++        {
++          g_free(pkev);
++          *pkevs = NULL;
++          *n_kevs = 0;
++          return IIIMF_STATUS_FAIL;
++        }
++#else
+ 	return IIIMF_STATUS_FAIL;
++#endif /* USE_NICOLA_TABLE */
+ 
+ 
+       /* retry */
+       c = g2icode (keyval);
+ 
+       if (c == 0)
++#if	USE_NICOLA_TABLE
++        {
++          g_free(pkev);
++          *pkevs = NULL;
++          *n_kevs = 0;
++          return IIIMF_STATUS_FAIL;
++        }
++#else
+ 	return IIIMF_STATUS_FAIL;
++#endif /* USE_NICOLA_TABLE */
+     }
+   if (c < 0)
+     {
+@@ -999,6 +1906,10 @@
+ 
+   pkev->time_stamp = e->time;
+ 
++#if	USE_NICOLA_TABLE
++  *pkevs = pkev;
++  *n_kevs = 1;
++#endif /* USE_NICOLA_TABLE */
+   return IIIMF_STATUS_SUCCESS;
+ }
+ 
+--- iiimgcf/IIIMGdkEventKey.h.orig	2005-10-28 15:52:51.000000000 +0900
++++ iiimgcf/IIIMGdkEventKey.h	2008-04-06 09:37:31.000000000 +0900
+@@ -43,9 +43,21 @@
+   IIIMF_ALT_MODIFIER = 8
+ };
+ 
++#ifdef	linux
++#define	USE_NICOLA_TABLE	1
++#define	USE_NICOLA_TABLE_F	1
++#endif	/* linux */
++
++#if	USE_NICOLA_TABLE
++extern IIIMF_status
++convert_GdkEventKey_to_IIIMCF_keyevents (GdkEventKey * e,
++					 IIIMCF_keyevent **pkevs,
++					 gint *n_kevs);
++#else
+ extern IIIMF_status
+ convert_GdkEventKey_to_IIIMCF_keyevent (GdkEventKey * e,
+ 					IIIMCF_keyevent * pkev);
++#endif	/* USE_NICOLA_TABLE */
+ 
+ extern IIIMF_status
+ convert_IIIMCF_keyevent_to_GdkEventKey (IIIMCF_keyevent * pkev,
+--- iiimgcf/gtkimcontextiiim.c.orig	2008-03-29 21:05:32.000000000 +0900
++++ iiimgcf/gtkimcontextiiim.c	2008-04-06 09:37:31.000000000 +0900
+@@ -1374,7 +1374,12 @@
+     {
+       GdkEventKey *e;
+       IIIMF_status st;
++#if	USE_NICOLA_TABLE
++      IIIMCF_keyevent *kevs;
++      gint n_kevs;
++#else
+       IIIMCF_keyevent kev;
++#endif /* USE_NICOLA_TABLE */
+       IIIMCF_event ev;
+       gchar *buffer = NULL;
+ 
+@@ -1391,13 +1396,22 @@
+ 
+       g_free (buffer);
+     
++#if	USE_NICOLA_TABLE
++      st = convert_GdkEventKey_to_IIIMCF_keyevents (e, &kevs, &n_kevs);
++#else
+       st = convert_GdkEventKey_to_IIIMCF_keyevent (e, &kev);
++#endif /* USE_NICOLA_TABLE */
+       gdk_event_free ((GdkEvent *)e);
+   
+       if (st != IIIMF_STATUS_SUCCESS)
+ 	return;
+ 
++#if	USE_NICOLA_TABLE
++      st = iiimcf_create_keyevent (&kevs[0], &ev);
++      g_free(kevs);
++#else
+       st = iiimcf_create_keyevent (&kev, &ev);
++#endif /* USE_NICOLA_TABLE */
+       if (st != IIIMF_STATUS_SUCCESS)
+ 	return;
+ 
+@@ -2132,11 +2146,19 @@
+ {
+   GtkIMContextIIIM *context_iiim = GTK_IM_CONTEXT_IIIM (context);
+   IIIMF_status st;
++#if	USE_NICOLA_TABLE
++  IIIMCF_keyevent *kevs;
++  gint n_kevs;
++  gint i;
++#else
+   IIIMCF_keyevent kev;
++#endif /* USE_NICOLA_TABLE */
+   IIIMCF_event ev;
+   gint store_key = 0;
+   static gboolean was_dead_key = FALSE;
+ 
++#if	USE_NICOLA_TABLE
++#else
+   /* IIIMF doesn't recognize */
+   if ((GDK_KEY_RELEASE == event->type) &&
+       (NULL != context_iiim->iiim_info) &&
+@@ -2145,6 +2167,7 @@
+ 				      IIIMP_CAPABILITY_KEY_RELEASE))) {
+     return FALSE;
+   }
++#endif /* USE_NICOLA_TABLE */
+ 
+   if (current_setting_enabled &&
+       current_setting.im_enabled == IM_OFF)
+@@ -2182,10 +2205,39 @@
+   }
+ #endif
+ 
++#if	USE_NICOLA_TABLE
++  st = convert_GdkEventKey_to_IIIMCF_keyevents (event, &kevs, &n_kevs);
++#else
+   st = convert_GdkEventKey_to_IIIMCF_keyevent (event, &kev);
++#endif /* USE_NICOLA_TABLE */
+   if (st != IIIMF_STATUS_SUCCESS)
+     goto commit_this_event;
+ 
++#if	USE_NICOLA_TABLE
++  for (i = 0; i < n_kevs; i++)
++    {
++      st = iiimcf_create_keyevent (&kevs[i], &ev);
++      if (st != IIIMF_STATUS_SUCCESS)
++	{
++	  g_free(kevs);
++	  goto commit_this_event;
++	}
++
++      /* Send Message to IIIMSF */
++      if (forward_event (context_iiim, ev, &st))
++	iiim_event_dispatch (context_iiim);
++      else if (st != IIIMF_STATUS_EVENT_NOT_FORWARDED &&
++	       st != IIIMF_STATUS_IC_INVALID)
++	{
++	  g_free(kevs);
++	  return FALSE;
++	}
++    }
++  g_free(kevs);
++
++  if (st == IIIMF_STATUS_SUCCESS)
++    return TRUE;
++#else
+   st = iiimcf_create_keyevent (&kev, &ev);
+   if (st != IIIMF_STATUS_SUCCESS)
+     goto commit_this_event;
+@@ -2197,6 +2249,7 @@
+   if (st != IIIMF_STATUS_EVENT_NOT_FORWARDED &&
+       st != IIIMF_STATUS_IC_INVALID)
+     return FALSE;
++#endif /* USE_NICOLA_TABLE */
+ 
+  commit_this_event:
+   if (IS_DEAD_KEY(event->keyval)) {

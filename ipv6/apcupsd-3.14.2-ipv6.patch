@@ -1,0 +1,825 @@
+diff -urN apcupsd-3.14.2/include/extern.h apcupsd-3.14.2-ipv6/include/extern.h
+--- apcupsd-3.14.2/include/extern.h	2006-09-24 03:10:00.000000000 +0900
++++ apcupsd-3.14.2-ipv6/include/extern.h	2007-11-18 22:56:38.000000000 +0900
+@@ -221,6 +221,7 @@
+ extern void net_close(int sockfd);
+ extern int net_send(int sockfd, char *buff, int len);
+ extern int net_recv(int sockfd, char *buff, int maxlen);
++extern char *ltostr(char *str, long val, int base);
+ 
+ /* In apclist.c */
+ extern int insertUps(UPSINFO *ups);
+diff -urN apcupsd-3.14.2/include/nis.h apcupsd-3.14.2-ipv6/include/nis.h
+--- apcupsd-3.14.2/include/nis.h	2005-06-11 22:55:35.000000000 +0900
++++ apcupsd-3.14.2-ipv6/include/nis.h	2007-11-23 13:02:05.000000000 +0900
+@@ -20,7 +20,6 @@
+  * MA 02111-1307, USA.
+  */
+ 
+-extern struct sockaddr_in tcp_serv_addr;        /* socket information */
+ extern int net_errno;              /* error number -- not yet implemented */
+ extern char *net_errmsg;           /* pointer to error message */
+ extern char net_errbuf[256];       /* error message buffer for messages */
+@@ -58,4 +57,12 @@
+ void net_close(int sockfd);
+ 
+ /* Wait for and accept a new TCP connection */
+-int net_accept(int fd, struct sockaddr_in *cli_addr);
++#ifdef HAVE_MINGW
++/* kludge because some idiot defines socklen_t as unsigned */
++int net_accept(int fd, struct sockaddr *cli_addr, int clilen);
++#else
++int net_accept(int fd, struct sockaddr *cli_addr, socklen_t clilen);
++#endif
++
++/* Convert a long integer to a string */
++char *ltostr(char *str, long val, int base);
+diff -urN apcupsd-3.14.2/src/apcaccess.c apcupsd-3.14.2-ipv6/src/apcaccess.c
+--- apcupsd-3.14.2/src/apcaccess.c	2007-08-04 00:17:15.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/apcaccess.c	2007-11-23 14:28:30.000000000 +0900
+@@ -28,7 +28,7 @@
+ extern char *net_errmsg;
+ 
+ /* Default values for contacting daemon */
+-static char *host = "localhost";
++static char *host = NULL;
+ static int port = NISPORT;
+ 
+ /* Get and print status from apcupsd NIS server */
+@@ -81,17 +81,24 @@
+    if (argc > 2) {                 /* assume host:port */
+       char *p;
+ 
+-      host = argv[2];
+-      p = strchr(host, ':');
++      if (*argv[2] == '[') {
++         host = argv[2] + 1;
++         p = strchr(host, ']');
++         if (p)
++            *p++ = 0;
++         else
++            Error_abort1(_("Bad address in IPv6 format: %s\n"), argv[2]);
++      } else {
++         host = argv[2];
++         p = host;
++      }
++      p = strchr(p, ':');
+       if (p) {
+          *p++ = 0;
+          port = atoi(p);
+       }
+    }
+ 
+-   if (!*host || strcmp(host, "0.0.0.0") == 0)
+-      host = "localhost";
+-
+    switch (mode) {
+    case 2:       /* status */
+       do_pthreads_status(host, port);
+diff -urN apcupsd-3.14.2/src/apcnis.c apcupsd-3.14.2-ipv6/src/apcnis.c
+--- apcupsd-3.14.2/src/apcnis.c	2006-08-14 01:59:52.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/apcnis.c	2007-11-23 22:37:02.000000000 +0900
+@@ -37,6 +37,10 @@
+    int newsockfd;
+ };
+ 
++struct conntable {
++   struct conntable *next;
++   int sockfd;
++};
+ 
+ /* forward referenced subroutines */
+ void *handle_client_request(void *arg);
+@@ -122,12 +126,18 @@
+ void do_server(UPSINFO *ups)
+ {
+    int newsockfd, sockfd, childpid;
+-   struct sockaddr_in cli_addr;    /* client's address */
+-   struct sockaddr_in serv_addr;   /* our address */
++   int maxsockfd = -1;
++   struct conntable *ct_top = NULL, **ctp = &ct_top, *ct, *ct_next;
++   struct addrinfo hints;
++   struct addrinfo *res, *ai;
++   struct sockaddr_storage cli_addr;    /* client's address */
++   char port_name[MAXSTRING];
+    int tlog;
+    int turnon = 1;
++   int passive = 1;
++   int error;
+    struct s_arg *arg;
+-   struct in_addr local_ip;
++   fd_set rfd_init, rfd;
+ 
+    for (tlog = 0; (ups = attach_ups(ups)) == NULL; tlog -= 5 * 60) {
+       if (tlog <= 0) {
+@@ -137,23 +147,35 @@
+       sleep(5 * 60);
+    }
+ 
+-   local_ip.s_addr = INADDR_ANY;
+-
+-   if (ups->nisip[0]) {
+-      if (inet_pton(AF_INET, ups->nisip, &local_ip) != 1) {
+-         log_event(ups, LOG_WARNING, "Invalid NISIP specified: '%s'", ups->nisip);
+-         local_ip.s_addr = INADDR_ANY;
++    memset(&hints, 0, sizeof(hints));
++    hints.ai_family = PF_UNSPEC;
++    hints.ai_socktype = SOCK_STREAM;
++    ltostr(port_name, ups->statusport, 10);
++
++    if (ups->nisip && ups->nisip[0]) {
++       error = getaddrinfo(ups->nisip, port_name, &hints, &res);
++       if (error)
++          log_event(ups, LOG_WARNING, "Invalid NISIP specified: '%s'", ups->nisip);
++       else
++          passive = 0;
++    }
++    if (passive) {
++       hints.ai_flags = AI_PASSIVE;
++       error = getaddrinfo(NULL, port_name, &hints, &res);
++       if (error) {
++          log_event(ups, LOG_ERR, "Cannot getaddrinfo by AI_PASSIVE. ERR=%s",
++             gai_strerror(error));
++         return;
+       }
+    }
+ 
++retry:
++   for (ai = res; ai; ai = ai->ai_next) {
+    /* Open a TCP socket */
+-   for (tlog = 0; (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0; tlog -= 5 * 60) {
+-      if (tlog <= 0) {
+-         tlog = 60 * 60;
++      if ((sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) < 0) {
+          log_event(ups, LOG_ERR, "apcserver: cannot open stream socket");
++         continue;
+       }
+-      sleep(5 * 60);
+-   }
+ 
+    /* Reuse old sockets */
+ #ifndef HAVE_MINGW
+@@ -163,35 +185,71 @@
+    }
+ #endif
+    
++   /* IPv6 communications only */
++#if defined(IPV6_V6ONLY) && defined(AF_INET6)
++      if (ai->ai_family == AF_INET6) {
++         if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY, (void*)&turnon, sizeof(turnon)) < 0) {;
++            log_event(ups, LOG_WARNING, "Cannot set IPPROTO_IPV6 on socket: %s\n",
++               strerror(errno));
++         }
++      }
++#endif
++   
+    /* Bind our local address so that the client can send to us. */
+-   memset((char *)&serv_addr, 0, sizeof(serv_addr));
+-   serv_addr.sin_family = AF_INET;
+-   serv_addr.sin_addr = local_ip;
+-   serv_addr.sin_port = htons(ups->statusport);
+-
+-   for (tlog = 0; bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0;
+-      tlog -= 5 * 60) {
+-      if (tlog <= 0) {
+-         tlog = 60 * 60;
++      if (bind(sockfd, ai->ai_addr, ai->ai_addrlen) < 0) {
+          log_event(ups, LOG_ERR, "apcserver: cannot bind port %d. ERR=%s",
+             ups->statusport, strerror(errno));
++         close(sockfd);
++         continue;
++      }
++
++      listen(sockfd, 5);              /* tell system we are ready */
++   
++      if (!(ct = (struct conntable *)malloc(sizeof(*ct)))) {
++         close(sockfd);
++         continue;
+       }
++
++      if (maxsockfd < sockfd)
++         maxsockfd = sockfd;
++
++      memset(ct, 0, sizeof(*ct));
++      ct->sockfd = sockfd;
++
++      *ctp = ct;
++      ctp = &ct->next;
++   }
++
++   if (maxsockfd < 0) {
+       sleep(5 * 60);
++      goto retry;
+    }
+-   listen(sockfd, 5);              /* tell system we are ready */
++
++   freeaddrinfo(res);
++
++   FD_ZERO(&rfd_init);
++   for(ct = ct_top; ct; ct = ct->next)
++      FD_SET(ct->sockfd, &rfd_init);
+ 
+    log_event(ups, LOG_INFO, "NIS server startup succeeded");
+ 
+    for (;;) {
++      rfd = rfd_init;
++      if (select(maxsockfd + 1, &rfd, NULL, NULL, NULL) < 0) {
++            log_event(ups, LOG_ERR, "apcserver: select error. ERR=%s",
++               strerror(errno));
++            continue;
++      }
++
++      for (ct = ct_top; ct; ct = ct->next) {
++         if (FD_ISSET(ct->sockfd, &rfd)) {
+       /* Wait for a connection from a client process. */
+-      for (tlog = 0; (newsockfd = net_accept(sockfd, &cli_addr)) < 0; tlog -= 5 * 60) {
+-         if (tlog <= 0) {
+-            tlog = 60 * 60;
++         if ((newsockfd = net_accept(ct->sockfd, (struct sockaddr *)&cli_addr,
++               sizeof(cli_addr))) < 0) {
+             log_event(ups, LOG_ERR, "apcserver: accept error. ERR=%s",
+                strerror(errno));
+-         }
+-         sleep(5 * 60);
+-      }
++            continue;
++          }
+ 
+ #ifdef HAVE_LIBWRAP
+       /*
+@@ -212,6 +270,8 @@
+       pthread_t tid;
+       pthread_create(&tid, NULL, handle_client_request, arg);
+ 
++         }
++      }
+    }
+ }
+ 
+diff -urN apcupsd-3.14.2/src/cgi/upsfetch.c apcupsd-3.14.2-ipv6/src/cgi/upsfetch.c
+--- apcupsd-3.14.2/src/cgi/upsfetch.c	2005-06-11 22:55:36.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/cgi/upsfetch.c	2007-11-23 18:49:08.000000000 +0900
+@@ -107,9 +107,24 @@
+    strncpy(last_host, host, sizeof(last_host)); 
+    last_host[sizeof(last_host) - 1] = '\0';
+    statlen = 0;
+-   strncpy(lhost, host, sizeof(lhost)-1);
+-   lhost[sizeof(lhost)-1] = '\0';
+-   p = strchr(lhost, ':');
++   if (*host == '[') {
++      strncpy(lhost, host+1, sizeof(lhost)-1);
++      lhost[sizeof(lhost)-1] = '\0';
++      p = strchr(lhost, ']');
++      if (p)
++         *p++ = '\0';
++      else {
++         (void) snprintf(errmsg, sizeof (errmsg),
++            "upsfetch: Bad address in IPv6 format: %s", host);
++         net_errmsg = errmsg;
++         return 0;
++      }
++   } else {
++      strncpy(lhost, host, sizeof(lhost)-1);
++      lhost[sizeof(lhost)-1] = '\0';
++      p = lhost;
++   }
++   p = strchr(p, ':');
+    if (p) {
+       *p++ = '\0';
+       nis_port = atoi(p);
+diff -urN apcupsd-3.14.2/src/cgi/upsfstats.c apcupsd-3.14.2-ipv6/src/cgi/upsfstats.c
+--- apcupsd-3.14.2/src/cgi/upsfstats.c	2004-03-20 12:50:08.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/cgi/upsfstats.c	2007-11-23 18:52:12.000000000 +0900
+@@ -23,7 +23,7 @@
+ #define MAXHOSTNAMELEN 64
+ #endif
+ 
+-static char   monhost[MAXHOSTNAMELEN] = "127.0.0.1";
++static char   monhost[MAXHOSTNAMELEN] = "";
+ static int    refresh = DEFAULT_REFRESH;
+ 
+ void parsearg(const char *var, const char *value) 
+diff -urN apcupsd-3.14.2/src/cgi/upsstats.c apcupsd-3.14.2-ipv6/src/cgi/upsstats.c
+--- apcupsd-3.14.2/src/cgi/upsstats.c	2005-09-02 11:25:07.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/cgi/upsstats.c	2007-11-23 18:52:01.000000000 +0900
+@@ -44,7 +44,7 @@
+ #define MAXHOSTNAMELEN  64
+ #endif
+ 
+-static char   monhost[MAXHOSTNAMELEN] = "127.0.0.1";
++static char   monhost[MAXHOSTNAMELEN] = "";
+ static int    img1 = 1;
+ static int    img2 = 6;
+ static int    img3 = 5;
+diff -urN apcupsd-3.14.2/src/drivers/net/net.c apcupsd-3.14.2-ipv6/src/drivers/net/net.c
+--- apcupsd-3.14.2/src/drivers/net/net.c	2006-11-26 23:31:28.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/drivers/net/net.c	2007-11-23 19:08:08.000000000 +0900
+@@ -140,9 +140,17 @@
+    astrncpy(ups->upsclass.long_name, "Net Slave", sizeof(ups->upsclass.long_name));
+ 
+    /* Now split the device. */
+-   nid->hostname = nid->device;
++   if (*nid->device == '[') {
++      nid->hostname = nid->device+1;
++      cp = strchr(nid->hostname, ']');
++      if (cp)
++         *cp++ = '\0';
++   } else {
++      nid->hostname = nid->device;
++      cp = nid->device;
++   }
+ 
+-   cp = strchr(nid->device, ':');
++   cp = strchr(cp, ':');
+    if (cp) {
+       *cp = '\0';
+       cp++;
+diff -urN apcupsd-3.14.2/src/drivers/pcnet/pcnet.c apcupsd-3.14.2-ipv6/src/drivers/pcnet/pcnet.c
+--- apcupsd-3.14.2/src/drivers/pcnet/pcnet.c	2007-08-04 04:08:03.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/drivers/pcnet/pcnet.c	2007-11-24 13:00:10.000000000 +0900
+@@ -508,10 +508,12 @@
+    struct timeval tv, now, exit;
+    fd_set rfds;
+    bool done = false;
+-   struct sockaddr_in from;
++   struct sockaddr_storage from;
+    socklen_t fromlen;
+    int retval;
++   int error;
+    char buf[4096];
++   char namebuf[MAXSTRING];
+    struct pair *map;
+    int idx;
+ 
+@@ -565,11 +567,14 @@
+          break;
+       }
+ 
+-      Dmsg4(200, "Packet from: %d.%d.%d.%d\n",
+-         (ntohl(from.sin_addr.s_addr) >> 24) & 0xff,
+-         (ntohl(from.sin_addr.s_addr) >> 16) & 0xff,
+-         (ntohl(from.sin_addr.s_addr) >> 8) & 0xff,
+-         ntohl(from.sin_addr.s_addr) & 0xff);
++      error = getnameinfo((struct sockaddr *)&from, fromlen, namebuf, sizeof(namebuf),
++         NULL, 0, NI_NUMERICHOST);
++      if (error) {
++         Dmsg1(200, "getnameinfo error: ERR=%s\n", gai_strerror(error));
++         break;
++      }
++
++      Dmsg1(200, "Packet from: %s\n", namebuf);
+ 
+       /* Ensure the packet is nul-terminated */
+       buf[retval] = '\0';
+@@ -604,7 +609,11 @@
+ 
+ int pcnet_ups_open(UPSINFO *ups)
+ {
+-   struct sockaddr_in addr;
++   struct addrinfo hints;
++   struct addrinfo *res, *ai;
++   char port_name[MAXSTRING];
++   int maxfd = -1;
++   int error;
+    PCNET_DATA *my_data = (PCNET_DATA *)ups->driver_internal_data;
+    char *ptr;
+ 
+@@ -622,7 +631,15 @@
+       astrncpy(my_data->device, ups->device, sizeof(my_data->device));
+       ptr = my_data->device;
+ 
+-      my_data->ipaddr = ptr;
++      if (*ptr == '[') {
++         my_data->ipaddr = ptr+1;
++         ptr = strchr(my_data->ipaddr, ']');
++         if (ptr)
++            *ptr++ = '\0';
++         else
++            Error_abort0("Malformed DEVICE [[ip]:user:pass]\n");
++      } else
++         my_data->ipaddr = ptr;
+       ptr = strchr(ptr, ':');
+       if (ptr == NULL)
+          Error_abort0("Malformed DEVICE [ip:user:pass]\n");
+@@ -639,21 +656,42 @@
+          Error_abort0("Malformed DEVICE [ip:user:pass]\n");
+    }
+ 
+-   ups->fd = socket(PF_INET, SOCK_DGRAM, 0);
++   memset(&hints, 0, sizeof(hints));
++   hints.ai_family = PF_UNSPEC;
++   hints.ai_flags = AI_PASSIVE;
++   hints.ai_socktype = SOCK_STREAM;
++   ltostr(port_name, PCNET_PORT, 10);
++
++   error = getaddrinfo(NULL, port_name, &hints, &res);
++   if (error)
++      Error_abort1(_("Cannot getaddrinfo by AI_PASSIVE. (%s)\n"),
++         gai_strerror(error));
++
++   for (ai = res; ai; ai = ai->ai_next) {
++   ups->fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (ups->fd == -1)
+-      Error_abort1(_("Cannot create socket (%d)\n"), errno);
++      continue;
+ 
+    int enable = 1;
+    setsockopt(ups->fd, SOL_SOCKET, SO_BROADCAST, (const char*)&enable, sizeof(enable));
++#if defined(IPV6_V6ONLY) && defined(AF_INET6)
++   if (ai->ai_family == AF_INET6)
++      setsockopt(ups->fd, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&enable, sizeof(enable));
++#endif
+ 
+-   memset(&addr, 0, sizeof(addr));
+-   addr.sin_family = AF_INET;
+-   addr.sin_port = htons(PCNET_PORT);
+-   addr.sin_addr.s_addr = INADDR_ANY;
+-   if (bind(ups->fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
++   if (bind(ups->fd, ai->ai_addr, ai->ai_addrlen) == -1) {
+       close(ups->fd);
+-      Error_abort1(_("Cannot bind socket (%d)\n"), errno);
++      continue;
+    }
++   maxfd = ups->fd;
++   break;
++   }
++
++   if (res)
++      freeaddrinfo(res);
++
++   if (maxfd < 0)
++      Error_abort1(_("Cannot create/bind socket (%d)\n"), errno);
+ 
+    /* Cheat and fixup CI_UPSMODEL to match PCNET */
+    ups->UPS_Cmd[CI_UPSMODEL] = 0x01;
+@@ -743,9 +781,13 @@
+ int pcnet_ups_kill_power(UPSINFO *ups)
+ {
+    PCNET_DATA *my_data = (PCNET_DATA *)ups->driver_internal_data;
+-   struct sockaddr_in addr;
++   struct addrinfo hints;
++   struct addrinfo *res, *ai;
++   char port_name[MAXSTRING];
++   int error;
+    char data[1024];
+-   int s, len=0, temp=0;
++   int s = -1, len=0, temp=0;
++   int maxs = -1;
+    char *start;
+    const char *cs, *hash;
+    struct pair *map;
+@@ -759,26 +801,41 @@
+                    "apcupsd.conf.\n");
+    }
+ 
++   memset(&hints, 0, sizeof(hints));
++   hints.ai_family = PF_UNSPEC;
++   hints.ai_socktype = SOCK_STREAM;
++   ltostr(port_name, 80, 10);
++
++   error = getaddrinfo(my_data->ipaddr, port_name, &hints, &res);
++   if (error)
++      Dmsg1(100, "pcnet_ups_kill_power: Cannot getaddrinfo. (%s)\n",
++         gai_strerror(error));
++
++   for (ai = res; ai; ai = ai->ai_next) {
+    /* Open a TCP stream to the UPS */
+-   s = socket(PF_INET, SOCK_STREAM, 0);
++   s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (s == -1) {
+       Dmsg1(100, "pcnet_ups_kill_power: Unable to open socket: %s\n",
+          strerror(errno));
+-      return 0;
++      continue;
+    }
+ 
+-   memset(&addr, 0, sizeof(addr));
+-   addr.sin_family = AF_INET;
+-   addr.sin_port = htons(80);
+-   inet_pton(AF_INET, my_data->ipaddr, &addr.sin_addr.s_addr);
+-
+-   if (connect(s, (sockaddr*)&addr, sizeof(addr))) {
++   if (connect(s, ai->ai_addr, ai->ai_addrlen)) {
+       Dmsg3(100, "pcnet_ups_kill_power: Unable to connect to %s:%d: %s\n",
+          my_data->ipaddr, 80, strerror(errno));
+       close(s);
+-      return 0;
++      continue;
++   }
++   maxs = s;
++   break;
+    }
+ 
++   if (res)
++      freeaddrinfo(res);
++
++   if (maxs < 0)
++      return 0;
++
+    /* Send a simple HTTP request for "/macontrol.htm". */
+    asnprintf(data, sizeof(data),
+       "GET /macontrol.htm HTTP/1.1\r\n"
+diff -urN apcupsd-3.14.2/src/lib/apclibnis.c apcupsd-3.14.2-ipv6/src/lib/apclibnis.c
+--- apcupsd-3.14.2/src/lib/apclibnis.c	2007-08-06 06:31:33.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/lib/apclibnis.c	2007-11-23 12:59:39.000000000 +0900
+@@ -226,40 +226,33 @@
+ int net_open(char *host, char *service, int port)
+ {
+    int sockfd;
+-   struct hostent *hp;
+-   struct sockaddr_in tcp_serv_addr;  /* socket information */
+-   unsigned int inaddr;               /* Careful here to use unsigned int for */
+-                                      /* compatibility with Alpha */
++   int maxsockfd = -1;
++   struct addrinfo hints;
++   struct addrinfo *res, *ai;
++   char port_name[MAXSTRING];
++   int error;
+ 
+    /* 
+     * Fill in the structure serv_addr with the address of
+     * the server that we want to connect with.
+     */
+-   memset((char *)&tcp_serv_addr, 0, sizeof(tcp_serv_addr));
+-   tcp_serv_addr.sin_family = AF_INET;
+-   tcp_serv_addr.sin_port = htons(port);
+-
+-   if ((inaddr = inet_addr(host)) != INADDR_NONE) {
+-      tcp_serv_addr.sin_addr.s_addr = inaddr;
+-   } else {
+-      if ((hp = gethostbyname(host)) == NULL) {
+-         net_errmsg = "tcp_open: hostname error\n";
+-         return -1;
+-      }
+-
+-      if (hp->h_length != sizeof(inaddr) || hp->h_addrtype != AF_INET) {
+-         net_errmsg = "tcp_open: funny gethostbyname value\n";
+-         return -1;
+-      }
+-
+-      tcp_serv_addr.sin_addr.s_addr = *(unsigned int *)hp->h_addr;
++   memset(&hints, 0, sizeof(hints));
++   hints.ai_family = PF_UNSPEC;
++   if (!host)
++      hints.ai_flags = AI_PASSIVE;
++   hints.ai_socktype = SOCK_STREAM;
++   ltostr(port_name, port, 10);
++   error = getaddrinfo(host, port_name, &hints, &res);
++   if (error) {
++      net_errmsg = "tcp_open: hostname error\n";
++        return -1;
+    }
+ 
+-
++   for (ai = res; ai; ai = ai->ai_next) {
+    /* Open a TCP socket */
+-   if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
++   if ((sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) < 0) {
+       net_errmsg = "tcp_open: cannot open stream socket\n";
+-      return -1;
++      continue;
+    }
+ 
+    /* connect to server */
+@@ -271,16 +264,26 @@
+    fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL));
+ #endif
+ 
+-   if (connect(sockfd, (struct sockaddr *)&tcp_serv_addr, sizeof(tcp_serv_addr)) == -1) {
++   if (connect(sockfd, ai->ai_addr, ai->ai_addrlen) == -1) {
++      close(sockfd);
++      continue;
++   }
++   maxsockfd = sockfd;
++   break;
++   }
++
++   if (res)
++      freeaddrinfo(res);
++
++   if (maxsockfd < 0) {
+       asnprintf(net_errbuf, sizeof(net_errbuf),
+          _("tcp_open: cannot connect to server %s on port %d.\n"
+         "ERR=%s\n"), host, port, strerror(errno));
+       net_errmsg = net_errbuf;
+-      close(sockfd);
+       return -1;
+    }
+ 
+-   return sockfd;
++   return maxsockfd;
+ }
+ 
+ /* Close the network connection */
+@@ -294,14 +297,13 @@
+  * Returns -1 on error.
+  * Returns file descriptor of new connection otherwise.
+  */
+-int net_accept(int fd, struct sockaddr_in *cli_addr)
+-{
+ #ifdef HAVE_MINGW                                       
+    /* kludge because some idiot defines socklen_t as unsigned */
+-   int clilen = sizeof(*cli_addr);
++int net_accept(int fd, struct sockaddr *cli_addr, int clilen)
+ #else
+-   socklen_t clilen = sizeof(*cli_addr);
++int net_accept(int fd, struct sockaddr *cli_addr, socklen_t clilen)
+ #endif
++{
+    int newfd;
+ 
+ #if defined HAVE_OPENBSD_OS || defined HAVE_FREEBSD_OS
+@@ -327,7 +329,7 @@
+          return (-1);              /* error */
+       }
+ #endif
+-      newfd = accept(fd, (struct sockaddr *)cli_addr, &clilen);
++      newfd = accept(fd, cli_addr, &clilen);
+    } while (newfd == -1 && (errno == EINTR || errno == EAGAIN));
+ 
+    if (newfd < 0) {
+@@ -337,4 +339,27 @@
+ 
+    return newfd;
+ }
++
++char *ltostr(char *str, long val, int base)
++{
++   ldiv_t r;
++
++   if (base > 36) {
++      *str = '\0';
++      return str;
++   }
++
++   if (val < 0)
++      *str++ = '-';
++
++   r = ldiv(labs(val), base);
++
++   if (r.quot > 0)
++      str = ltostr(str, r.quot, base);
++
++   *str++ = "0123456789abcdefghijklmnopqrstuvwxyz"[(int)r.rem];
++   *str = '\0';
++
++   return str;
++}
+ #endif                             /* HAVE_NISLIB */
+diff -urN apcupsd-3.14.2/src/powerflute.c apcupsd-3.14.2-ipv6/src/powerflute.c
+--- apcupsd-3.14.2/src/powerflute.c	2005-09-01 03:45:40.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/powerflute.c	2007-11-23 14:28:30.000000000 +0900
+@@ -81,7 +81,7 @@
+ char argvalue[MAXSTRING];
+ 
+ /* Default values for contacting daemon */
+-static char *host = "localhost";
++static char *host = NULL;
+ static int port = NISPORT;
+ 
+ 
+@@ -742,8 +742,18 @@
+    if (argc > 2) {                 /* assume host:port */
+       char *p;
+ 
+-      host = argv[2];
+-      p = strchr(host, ':');
++      if (*argv[2] == '[') {
++         host = argv[2] + 1;
++         p = strchr(host, ']');
++         if (p)
++            *p++ = 0;
++         else
++            fprintf(stderr, "Bad address in IPv6 format: %s\n", argv[2]);
++      } else {
++          host = argv[2];
++          p = host;
++      }
++      p = strchr(p, ':');
+       if (p) {
+          *p++ = 0;
+          port = atoi(p);
+diff -urN apcupsd-3.14.2/src/smtp.c apcupsd-3.14.2-ipv6/src/smtp.c
+--- apcupsd-3.14.2/src/smtp.c	2006-07-30 05:25:26.000000000 +0900
++++ apcupsd-3.14.2-ipv6/src/smtp.c	2007-11-18 22:56:38.000000000 +0900
+@@ -169,8 +169,10 @@
+ int main(int argc, char *argv[])
+ {
+    char buf[MAXSTRING];
+-   struct sockaddr_in sin;
+-   struct hostent *hp;
++   struct addrinfo hints;
++   struct addrinfo *res, *ai;
++   char port_name[MAXSTRING];
++   int error;
+    int i, ch;
+    struct passwd *pwd;
+    char *cp, *p;
+@@ -237,7 +239,7 @@
+       if ((cp = getenv("SMTPSERVER")) != NULL)
+          mailhost = cp;
+       else
+-         mailhost = "localhost";
++         mailhost = NULL;
+    }
+ 
+ #ifdef HAVE_WIN32
+@@ -253,14 +255,16 @@
+       exit(1);
+    }
+ 
+-   if ((hp = gethostbyname(my_hostname)) == NULL) {
+-      Pmsg2(0, "Fatal gethostbyname for myself failed \"%s\": ERR=%s\n",
+-         my_hostname, strerror(errno));
++   memset(&hints, 0, sizeof(hints));
++   hints.ai_family = PF_UNSPEC;
++   hints.ai_socktype = SOCK_STREAM;
++   if ((error = getaddrinfo(my_hostname, NULL, &hints, &res))) {
++      Pmsg2(0, "Fatal getaddrinfo for myself failed \"%s\": ERR=%s\n",
++         my_hostname, gai_strerror(error));
+       exit(1);
+    }
+ 
+-   astrncpy(my_hostname, hp->h_name, sizeof(my_hostname));
+-   Dmsg1(20, "My hostname is: %s\n", my_hostname);
++   freeaddrinfo(res);
+ 
+    /* Determine from address. */
+    if (from_addr == NULL) {
+@@ -275,40 +279,46 @@
+    Dmsg1(20, "From addr=%s\n", from_addr);
+ 
+    /* Connect to smtp daemon on mailhost. */
+-hp:
+-   if ((hp = gethostbyname(mailhost)) == NULL) {
+-      Pmsg2(0, "Error unknown mail host \"%s\": ERR=%s\n", mailhost,
+-         strerror(errno));
+-      if (strcasecmp(mailhost, "localhost") != 0) {
+-         Pmsg0(0, "Retrying connection using \"localhost\".\n");
+-         mailhost = "localhost";
+-         goto hp;
++   memset(&hints, 0, sizeof(hints));
++   hints.ai_family = PF_UNSPEC;
++   if (!mailhost)
++      hints.ai_flags = AI_PASSIVE;
++   hints.ai_socktype = SOCK_STREAM;
++   ltostr(port_name, mailport, 10);
++   if ((error = getaddrinfo(mailhost, port_name, &hints, &res))) {
++      Pmsg2(0, "Error unknown mail host \"%s\": ERR=%s\n",
++         mailhost ? mailhost : "localhost", gai_strerror(error));
++      if (!mailhost)
++         exit(1);
++
++      Pmsg0(0, "Retrying connection using localhost.\n");
++
++      hints.ai_flags = AI_PASSIVE;
++      error = getaddrinfo(NULL, port_name, &hints, &res);
++      if (error) {
++         Pmsg1(0, "Cannot getaddrinfo by AI_PASSIVE. ERR=%s",
++            gai_strerror(error));
++         exit(1);
+       }
+-      exit(1);
+-   }
+-
+-   if (hp->h_addrtype != AF_INET) {
+-      Pmsg1(0, "Fatal error: Unknown address family for smtp host: %d\n",
+-         hp->h_addrtype);
+-      exit(1);
+-   }
+-
+-   memset((char *)&sin, 0, sizeof(sin));
+-   memcpy((char *)&sin.sin_addr, hp->h_addr, hp->h_length);
+-   sin.sin_family = hp->h_addrtype;
+-   sin.sin_port = htons(mailport);
+-
+-   if ((s = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+-      Pmsg1(0, "Fatal socket error: ERR=%s\n", strerror(errno));
+-      exit(1);
+    }
+ 
+-   if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+-      Pmsg2(0, "Fatal connect error to %s: ERR=%s\n", mailhost, strerror(errno));
+-      exit(1);
++   s = -1;
++   for (ai = res; ai; ai = res->ai_next) {
++      if ((s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) < 0) {
++         Pmsg2(0, "Fatal socket (address family: %d) error: ERR=%s\n",
++            ai->ai_family, strerror(errno));
++	 continue;
++      }
++      if (connect(s, ai->ai_addr, ai->ai_addrlen) < 0) {
++         Pmsg2(0, "Fatal connect error to %s: ERR=%s\n", mailhost, strerror(errno));
++	 close(s);
++	 continue;
++      }
++      Dmsg0(20, "Connected\n");
++      break;
+    }
+-
+-   Dmsg0(20, "Connected\n");
++   if (res)
++      freeaddrinfo(res);
+ 
+    /* Send SMTP headers */
+    get_response();                 /* banner */

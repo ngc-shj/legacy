@@ -1,0 +1,143 @@
+--- /usr/share/vine/imelib.orig	2007-01-12 00:54:00.000000000 +0900
++++ /usr/share/vine/imelib	2007-12-01 22:02:50.000000000 +0900
+@@ -10,7 +10,7 @@
+ 
+ ShowUsage_C() {
+ cat <<EOF
+-  Usage:  setime [-k] {scim|canna|wnn|wnn8|wnn8le|wnn7|wnn7xwnmo|wnn6|wnn6xwnmo|FreeWnn|atokx|atokx2|vje|uim|none|status}
++  Usage:  setime [-k] {scim|canna|wnn|wnn8|wnn8le|wnn7|wnn7xwnmo|wnn6|wnn6xwnmo|FreeWnn|atokx|atokx2|atokx3|vje|uim|none|status}
+ 
+      scim:      set SCIM as default input method and start scim
+      canna:     set Canna as default input method and start kinput2
+@@ -25,6 +25,7 @@
+      FreeWnn:   set FreeWnn as default input method and start kinput2
+      atokx:     set Atok X as default input method
+      atokx2:    set "ATOK for Linux" as default input method
++     atokx3:    set "ATOK X3 for Linux" as default input method
+      vje:       set VJE-Delta as default input method and start vje
+      skk:       set SKK as default input method and start skkinput
+      uim:       set UIM as default input method and start uim-xim
+@@ -39,7 +40,7 @@
+ 
+ ShowUsage_ja() {
+ cat <<EOF
+-  使用法:  setime [-k]{scim|canna|wnn|wnn8|wnn8le|wnn7|wnn7xwnmo|wnn6|wnn6xwnmo|FreeWnn|atokx|atokx2|vje|uim|none|status}
++  使用法:  setime [-k]{scim|canna|wnn|wnn8|wnn8le|wnn7|wnn7xwnmo|wnn6|wnn6xwnmo|FreeWnn|atokx|atokx2|atokx3|vje|uim|none|status}
+ 
+      scim:      SCIM をデフォルトの漢字変換システムとし、scim を起動します
+      canna:     かんな をデフォルトの漢字変換システムとし、kinput2 を起動します
+@@ -54,6 +55,7 @@
+      FreeWnn:   FreeWnn6 をデフォルトの漢字変換システムとし、kinput2 を起動します
+      atokx:     Atok X をデフォルトの漢字変換システムとします
+      atokx2:    "ATOK for Linux" をデフォルトの漢字変換システムとします
++     atokx3:    "ATOK X3 for Linux" をデフォルトの漢字変換システムとします
+      vje:       VJE-Deltaをデフォルトの漢字変換システムとし、vje を起動します
+      skk:       SKKをデフォルトの漢字変換システムとし、skkinput を起動します
+      uim:       UIM をデフォルトの漢字変換システムとし、uim-xim を起動します
+@@ -299,6 +301,7 @@
+ WNN6RPM=wnn6
+ ATOKXRPM=atokx
+ ATOKX2RPM=atokx
++ATOKX3RPM=atokx
+ VJERPM=vje-delta
+ ANTHYRPM=anthy
+ UIMXIMRPM=uim-xim
+@@ -326,6 +329,7 @@
+ [Wnn6]  `LANG=${LOCALE} LC_ALL=${LOCALE} rpm -q ${WNN6RPM} 2>&1`
+ [Atokx] `LANG=${LOCALE} LC_ALL=${LOCALE} rpm -q ${ATOKXRPM} 2>&1`
+ [AtokX2] `LANG=${LOCALE} LC_ALL=${LOCALE} rpm -q ${ATOKX2RPM} 2>&1`
++[AtokX3] `LANG=${LOCALE} LC_ALL=${LOCALE} rpm -q ${ATOKX3RPM} 2>&1`
+ [VJE-Delta] `LANG=${LOCALE} LC_ALL=${LOCALE} rpm -q ${VJERPM} 2>&1`
+ -----------------------------------------
+ `eval EnvVarMsg_${LOCALE}`
+@@ -424,6 +428,14 @@
+ fi
+ }
+ 
++AtokX3Exists(){
++if [ -f "/opt/atokx3/lib/client/atokx3auxd" ] ; then
++    return 0
++else
++    return -1
++fi
++}
++
+ AtokX2Exists(){
+ if [ -f "/opt/atokx2/sbin/atokx2mngdaemon" ] ; then
+     return 0
+@@ -670,6 +682,28 @@
+ return 0
+ }
+ 
++setAtokX3(){
++export XMODIFIERS="@im=iiimx"
++export HTT_DISABLE_STATUS_WINDOW=t
++export HTT_GENERATES_KANAKEY=t
++export HTT_USES_LINUX_XKEYSYM=t
++export HTT_IGNORES_LOCK_MASK=t
++export JS_FEEDBACK_CONVERT=t
++export GTK_IM_MODULE=iiim
++export QT_IM_MODULE=xim
++
++if [ -z "`ps xc | grep iiimx`" -a -n "$DISPLAY" ]; then
++
++   if [ -f ${HOME}/.Xdefaults ]; then
++      xrdb -merge ${HOME}/.Xdefaults
++    fi
++    /usr/bin/iiimx -iiimd
++
++fi
++
++return 0
++}
++
+ setVje(){
+ isVjeAlive || return -1
+     XMODIFIERS="@im=vje"
+@@ -791,6 +825,12 @@
+ 		XIM_PROG=atokx2
+ 	    setAtokX2
+ 	    ;;
++	atokx3)
++		eval SettingIMMsg_$LOCALE atokx3
++		EMACS_IME=atokx3
++		XIM_PROG=atokx3
++	    setAtokX3
++	    ;;
+ 	vje)
+ 	    eval SettingIMMsg_$LOCALE vje
+ 	    EMACS_IME=vje
+@@ -855,6 +895,7 @@
+ unset -f setLocale CheckOption CheckXIMStatus ShowIMEStatus isCannaAlive isWnnAlive
+ unset -f isAtokxAlive AtokxExists setAtokx
+ unset -f isAtokX2Alive AtokX2Exists setAtokX2
++unset -f AtokX3Exists setAtokX3
+ unset -f isVjeAlive setVje
+ unset -f Wnn8Exists Wnn7Exists Wnn6Exists FreeWnnExists checkKinput2Mod startKinput2 setCanna killXwnmo
+ unset -f setWnn8 setWnn7 setWnn6 setFreeWnn setIME setNone unsetImeFuncs
+--- /usr/share/vine/vinelib.orig	2007-01-12 00:54:00.000000000 +0900
++++ /usr/share/vine/vinelib	2007-12-01 22:00:52.000000000 +0900
+@@ -66,6 +66,10 @@
+ 		FE=
+ 		IM=atokx2
+ 		;;
++	atokx3|AtokX3)
++		FE=
++		IM=atokx3
++		;;
+ 	vje|Vje|VJE)
+ 		IM=vje
+ 		;;
+--- /etc/X11/xinit/xinitrc.d/setime.orig	2007-01-12 00:54:00.000000000 +0900
++++ /etc/X11/xinit/xinitrc.d/setime	2007-12-01 22:00:52.000000000 +0900
+@@ -61,6 +61,10 @@
+         echo "Canna with kinput2, server=${CANNA_SERVER}" >> ${LOG}
+         setime Canna >> ${LOG}
+         ;;
++    atokx3|ATOKX3)
++        echo "ATOK X3 for Linux" >> ${LOG}
++        setime atokx3 >> ${LOG}
++        ;;
+     atokx2|ATOKX2)
+         echo "ATOK for Linux" >> ${LOG}
+         setime atokx2 >> ${LOG}
